@@ -2,6 +2,8 @@
 
 Referencia de **qué devuelve cada endpoint**, **cómo enviar las peticiones** y **qué información necesita cada sistema** para conectarse.
 
+**API Cuiner (origen de ventas):** [https://openapi.cuiner.net/documentacion](https://openapi.cuiner.net/documentacion)
+
 ---
 
 ## 1. Qué información necesita cada sistema
@@ -37,8 +39,11 @@ Cuiner llama a la API de Odoo solo para **wallet** (consulta de saldo y cargo). 
 | **Nombre de la base de datos** | Si Odoo tiene varias bases de datos, el nombre de la BD (ej. `prod`, `caldea`). Se envía en query: `?db=nombre_bd`. |
 
 Con esto Cuiner puede:
-- Llamar a `GET /api/cuiner/balance/<rfid_uid>` (consultar saldo).
+- Llamar a `GET /api/cuiner/balance/<rfid_uid>` (consultar saldo y tags).
+- Llamar a `GET /api/cuiner/profile/<rfid_uid>` (perfil y etiquetas por RFID).
+- Llamar a `GET /api/cuiner/profile/email/<email>` (perfil y etiquetas por email; usar %40 para @).
 - Llamar a `POST /api/cuiner/charge` (registrar cargo).
+- Llamar a `POST /api/cuiner/cuadre` (enviar resultado del cuadre de caja).
 
 No se usa usuario/contraseña: solo el header **X-API-Key**.
 
@@ -109,7 +114,25 @@ Si hay varias bases de datos: añadir **`?db=nombre_bd`** a la URL.
 
 ---
 
-### 2.2. POST `/api/cuiner/charge`
+### 2.2. GET `/api/cuiner/profile/<rfid_uid>`
+
+**Uso:** Obtener solo el perfil del cliente (etiquetas) por RFID para aplicar tarifa (caso 4.2). No incluye saldo wallet.
+
+**Cómo enviarlo:** GET, header `X-API-Key`, sin body. Opcional `?db=nombre_bd`.
+
+**Qué devuelve:** `success`, `rfid_uid`, `partner_id`, `name`, `email`, **`etiquetas`** (lista de categorías del contacto).
+
+---
+
+### 2.3. GET `/api/cuiner/profile/email/<email>`
+
+**Uso:** Perfil por correo electrónico (caso 4.2 PDF: “correo electrónico como identificador único”). En la URL usar `%40` para la arroba (ej. `cliente%40empresa.com`).
+
+**Qué devuelve:** `success`, `email`, `partner_id`, `name`, **`etiquetas`**. 404 si no existe el contacto.
+
+---
+
+### 2.4. POST `/api/cuiner/charge`
 
 **Uso:** Registrar un cargo de wallet (descontar un importe del saldo del cliente).
 
@@ -192,6 +215,14 @@ Ejemplo de error saldo insuficiente:
   }
 }
 ```
+
+---
+
+### 2.5. POST `/api/cuiner/cuadre`
+
+**Uso:** Enviar a Odoo el resultado del cuadre de caja (caso 4.6). Body JSON (o JSON-RPC params): `date` (YYYY-MM-DD, obligatorio), `surplus`, `shortage`, `reason`, `pos_session_id` (opcional). Odoo guarda el registro en `cuiner.cuadre`.
+
+**Qué devuelve:** `success: true` y `message: "Cuadre registrado"`, o error con `success: false` y `error`, `message`.
 
 ---
 
@@ -298,6 +329,7 @@ Si no hay ventas, puede devolver `[]`.
     - **`price`**: precio unitario (por defecto 0 si no viene).
   - **`rfid_uid`** (opcional): código RFID del cliente; si viene y existe en Odoo (barcode del partner), se asocia el ticket a ese cliente; si no, se usa el “cliente por defecto”.
   - **`type`** (opcional): si es `"Factura"`, Odoo genera factura del ticket; si no, solo marca como pagado.
+  - **`payments`** (opcional, caso 4.1): lista de pagos para varios métodos, ej. `[{"method": "Efectivo", "amount": 10}, {"method": "Tarjeta", "amount": 15.50}]`. Si viene, Odoo registra un pago por cada ítem (por nombre de método o `method_id`). También se aceptan claves `payment_lines` o `payment_methods`.
 
 Ejemplo de estructura que Odoo espera:
 ```json
@@ -321,10 +353,13 @@ Si un ítem tiene `id` que no existe en Odoo como `cui_id_{id}`, la sincronizaci
 | Quién llama | Endpoint | Cómo enviar | Qué devuelve / qué debe devolver |
 |-------------|----------|-------------|-----------------------------------|
 | **Cuiner → Odoo** | GET `/api/cuiner/balance/<rfid_uid>` | GET + header `X-API-Key` (+ `?db=...`) | 200: `success`, `balance`, `currency`, `tags`, `cards`. 401: API Key. 404: cliente no encontrado. |
+| **Cuiner → Odoo** | GET `/api/cuiner/profile/<rfid_uid>` | GET + `X-API-Key` | 200: `success`, `partner_id`, `name`, `email`, `etiquetas`. |
+| **Cuiner → Odoo** | GET `/api/cuiner/profile/email/<email>` | GET + `X-API-Key` (email con %40 para @) | 200: `success`, `email`, `partner_id`, `name`, `etiquetas`. 404 si no existe. |
 | **Cuiner → Odoo** | POST `/api/cuiner/charge` | POST + body JSON-RPC con `params`: `rfid_uid`, `amount`, opc. `cuiner_sale_id`, `date`, `description` | 200 + `result`: `success`, `amount_charged`, `remaining_balance`, o `success: false` + `error`, `message` (y en INSUFFICIENT_BALANCE: `available_balance`, `required_amount`, `shortage`). |
+| **Cuiner → Odoo** | POST `/api/cuiner/cuadre` | POST JSON: `date`, `surplus`, `shortage`, `reason`, opc. `pos_session_id` | 200: `success`, `message`. |
 | **Odoo → Cuiner** | GET `.../menus` | GET + `X-API-Key` | Array de IDs de menús. |
 | **Odoo → Cuiner** | GET `.../menu/{menu_id}` | GET + `X-API-Key` | Objeto con `items`: diccionario de ítems con `id`, `name`, `description`, `price`. |
 | **Odoo → Cuiner** | GET `.../sales_by_date/{fecha}/{fecha}` | GET + `X-API-Key` | Array de IDs de ventas. |
-| **Odoo → Cuiner** | GET `.../sales/{sale_id}` | GET + `X-API-Key` | Objeto con `date`, `items` (array con `id`, `qty`, `price`), opc. `rfid_uid`, `type`. |
+| **Odoo → Cuiner** | GET `.../sales/{sale_id}` | GET + `X-API-Key` | Objeto con `date`, `items` (array con `id`, `qty`, `price`), opc. `rfid_uid`, `type`, `payments` (varios métodos). |
 
 Documentación más detallada de la API Wallet (ejemplos cURL, Python, códigos de error): ver `../caldea_cuiner_sync_docs/DOCUMENTACION_API_CUINER.md` si está disponible en el proyecto.
