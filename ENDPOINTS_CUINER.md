@@ -14,7 +14,6 @@ Odoo llama a la API de Cuiner para **productos** y **ventas**. Esta configuraci�
 
 | Dato | Parámetro Odoo | Descripción |
 |------|----------------|-------------|
-| **Base URL de la API de Cuiner** | `caldea_cuiner_sync.base_url` | URL base de la API de Cuiner, configurada en Odoo. Sin barra final. |
 | **API Key** | `caldea_cuiner_sync.api_key` | Clave que Cuiner asigna a Odoo para autenticar las peticiones. |
 | **Restaurant ID** | `caldea_cuiner_sync.restaurant_id` | Identificador del restaurante en Cuiner. |
 | **Application ID** | `caldea_cuiner_sync.application_id` | Identificador de la aplicación en Cuiner. |
